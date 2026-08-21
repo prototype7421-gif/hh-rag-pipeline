@@ -12,13 +12,6 @@ interface Message {
   isStreaming?: boolean;
 }
 
-interface Document {
-  id: string;
-  title: string;
-  transcript: string;
-  createdAt: string;
-}
-
 interface LatencyBreakdown {
   sttMs: number;
   retrievalMs: number;
@@ -44,10 +37,7 @@ export default function HomePage() {
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [showKB, setShowKB] = useState(false);
-  const [showMetrics, setShowMetrics] = useState(true);
-  const [manualText, setManualText] = useState("");
+  const [showMetrics, setShowMetrics] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [latestMetrics, setLatestMetrics] = useState<LatencyBreakdown | null>(null);
@@ -92,20 +82,6 @@ export default function HomePage() {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isListening, isThinking]);
-
-  const loadDocuments = useCallback(async () => {
-    try {
-      const res = await fetch("/api/rag/documents");
-      const data = await res.json();
-      if (data.documents) setDocuments(data.documents);
-    } catch {
-      // silent
-    }
-  }, []);
-
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
 
   const speakTextWithTiming = useCallback(
     async (text: string): Promise<number> => {
@@ -370,335 +346,227 @@ export default function HomePage() {
     setTextQuery("");
   };
 
-  const addKnowledge = async () => {
-    if (!manualText.trim()) return;
-    try {
-      const res = await fetch("/api/rag/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `Doc ${new Date().toLocaleTimeString()}`, content: manualText }),
-      });
-      if (res.ok) {
-        setManualText("");
-        await loadDocuments();
-      }
-    } catch {
-      setError("Failed to add document");
-    }
-  };
-
   const allLatencies = latencyHistory.map((h) => h.totalMs);
   const p50 = getPercentile(allLatencies, 50);
   const p70 = getPercentile(allLatencies, 70);
   const p100 = getPercentile(allLatencies, 100);
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-[#0e5c33] to-[#0a4526] text-slate-800 flex flex-col overflow-hidden font-poppins selection:bg-pink-500/30">
+    <div className="relative min-h-screen bg-[#0b5c33] text-white flex flex-col overflow-hidden font-poppins selection:bg-[#ffe600]/40">
       
       {/* ─── GOOGLE FONTS & CUSTOM ANIMATIONS ──────────────────────── */}
       <style dangerouslySetInnerHTML={{__html: `
-        @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Playfair+Display:ital,wght@0,700;1,700&family=Poppins:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,600;1,700&family=Poppins:wght@400;500;600;700&family=Space+Mono:wght@700&display=swap');
         
         .font-poppins { font-family: 'Poppins', sans-serif; }
-        .font-serif-tall { font-family: 'Playfair Display', serif; transform: scaleY(1.3); display: inline-block; }
-        .font-cursive { font-family: 'Caveat', cursive; }
+        .font-serif-italic { font-family: 'Playfair Display', serif; font-style: italic; }
+        .font-mono-bold { font-family: 'Space Mono', monospace; }
         
-        @keyframes sway {
-          0%, 100% { transform: rotate(-2deg); }
-          50% { transform: rotate(3deg); }
+        /* Sun Rays Animation */
+        @keyframes spin-slow {
+          from { transform: translate(-50%, -50%) rotate(0deg); }
+          to { transform: translate(-50%, -50%) rotate(360deg); }
         }
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 0.85; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.05); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(10deg); }
-        }
-        
-        /* ─── EXTRAORDINARY ANIMATIONS ─── */
-        @keyframes liquid-shimmer {
-          0% { background-position: -200% center; }
-          100% { background-position: 200% center; }
-        }
-        .text-liquid-gold {
-          background: linear-gradient(
-            to right,
-            #ffe600 20%,
-            #fff 40%,
-            #ffe600 60%,
-            #f59e0b 80%
-          );
-          background-size: 200% auto;
-          color: #000;
-          background-clip: text;
-          text-fill-color: transparent;
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          animation: liquid-shimmer 4s linear infinite;
+        .animate-spin-slow {
+          animation: spin-slow 60s linear infinite;
         }
 
-        @keyframes voice-aura {
-          0% { transform: scale(0.8); opacity: 0.8; }
-          100% { transform: scale(2.5); opacity: 0; }
+        /* Subtle Wave Animation */
+        @keyframes wave-flow {
+          0% { background-position-x: 0; }
+          100% { background-position-x: 100px; }
         }
-        .aura-1 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite; }
-        .aura-2 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite 0.5s; }
-        .aura-3 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite 1s; }
+        .animate-waves {
+          animation: wave-flow 4s linear infinite;
+        }
 
-        @keyframes magic-dust {
-          0% { transform: translateY(100vh) scale(0); opacity: 0; }
-          20% { opacity: 0.8; }
-          80% { opacity: 0.8; }
-          100% { transform: translateY(-20vh) scale(1.5); opacity: 0; }
+        /* Float for Beach Elements */
+        @keyframes float-soft {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-4px); }
         }
-        .firefly {
-          position: absolute;
-          background: radial-gradient(circle, #ffe600 0%, rgba(255,230,0,0) 70%);
-          border-radius: 50%;
-          animation: magic-dust var(--dur) ease-in infinite var(--del);
-          left: var(--x);
-          width: var(--s);
-          height: var(--s);
-          filter: blur(1px);
-        }
-        /* ──────────────────────────────── */
-
-        .btn-shine { position: relative; overflow: hidden; }
-        .btn-shine::after {
-          content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); transform: skewX(-20deg);
-        }
-        .btn-shine:hover::after { animation: liquid-shimmer 0.75s ease-in-out; }
-
-        .animate-sway { animation: sway 9s ease-in-out infinite; transform-origin: bottom center; }
-        .animate-sway-delayed { animation: sway 11s ease-in-out infinite 2s; transform-origin: bottom center; }
-        .animate-glow { animation: pulse-glow 6s ease-in-out infinite; }
-        .animate-float { animation: float 10s ease-in-out infinite; }
-        .animate-float-delayed { animation: float 12s ease-in-out infinite 3s; }
+        .animate-float-soft { animation: float-soft 4s ease-in-out infinite; }
+        .animate-float-delayed { animation: float-soft 5s ease-in-out infinite 2s; }
         
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.4); border-radius: 10px; }
       `}} />
 
-      {/* ─── REALISTIC BACKGROUND & MAGIC DUST ──────────────────────── */}
+      {/* ─── VECTOR ART BACKGROUND ────────────────────────────────── */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         
-        {/* Magical Fireflies Particle System */}
-        {Array.from({ length: 20 }).map((_, i) => (
-          <div
-            key={i}
-            className="firefly"
-            style={{
-              '--x': `${Math.random() * 100}%`,
-              '--dur': `${Math.random() * 8 + 6}s`,
-              '--del': `${Math.random() * 10}s`,
-              '--s': `${Math.random() * 6 + 3}px`
-            } as React.CSSProperties}
-          />
-        ))}
-
-        {/* Floating Heritage Shapes */}
-        <div className="absolute top-32 left-[15%] w-20 h-20 bg-gradient-to-br from-pink-400/30 to-rose-400/10 rounded-full blur-md animate-float" />
-        <div className="absolute top-64 right-[20%] w-16 h-16 border-[3px] border-yellow-300/30 rotate-45 animate-float-delayed" />
-        <div className="absolute bottom-1/3 left-[25%] w-10 h-10 bg-gradient-to-br from-white/20 to-transparent rounded-full animate-float" />
-        <div className="absolute top-1/4 right-[10%] w-32 h-32 bg-purple-400/10 rounded-full blur-2xl animate-float-delayed" />
-
-        {/* Realistic Glowing Sun */}
-        <div className="absolute -bottom-64 left-1/2 -translate-x-1/2 w-[800px] h-[800px] animate-glow">
-          <div className="absolute inset-0 bg-gradient-to-tr from-yellow-400 via-orange-400 to-rose-500 rounded-full blur-[4px] shadow-[0_0_150px_rgba(255,215,0,0.4)]" />
-          <div className="absolute inset-10 bg-white/30 rounded-full blur-2xl" />
+        {/* Giant Yellow Sun & Rays */}
+        <div className="absolute top-[40%] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px]">
+          {/* Rotating Rays */}
+          <div className="absolute top-1/2 left-1/2 w-full h-full animate-spin-slow">
+            {Array.from({ length: 16 }).map((_, i) => (
+              <div 
+                key={i} 
+                className="absolute top-1/2 left-1/2 w-1.5 h-16 bg-[#ffe600] rounded-full"
+                style={{
+                  transform: `translate(-50%, -50%) rotate(${i * (360 / 16)}deg) translateY(-280px)`
+                }}
+              />
+            ))}
+          </div>
+          {/* Solid Sun Circle behind chat */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[460px] h-[460px] bg-[#ffe600] rounded-full" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-white rounded-full" />
         </div>
 
-        {/* Realistic Left Palm Tree */}
-        <div className="absolute -bottom-16 -left-16 w-80 h-[32rem] animate-sway opacity-90">
-          <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-2xl">
-            <defs>
-              <linearGradient id="trunk" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#4a2e1b" />
-                <stop offset="100%" stopColor="#2e1b0f" />
-              </linearGradient>
-              <radialGradient id="leaf" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#388e3c" />
-                <stop offset="100%" stopColor="#1b5e20" />
-              </radialGradient>
-            </defs>
-            <path d="M48,100 Q42,60 50,40 Q53,60 52,100 Z" fill="url(#trunk)"/>
-            <path d="M50,40 C30,30 10,45 5,55 C20,50 35,45 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C35,15 15,15 10,20 C30,25 40,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C55,10 70,10 80,15 C65,25 55,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C75,25 90,30 95,45 C80,40 65,40 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C70,55 85,65 90,75 C75,60 60,50 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C30,60 15,70 10,80 C25,65 40,50 50,40" fill="url(#leaf)"/>
+        {/* Ocean Waves */}
+        <div className="absolute bottom-[220px] left-0 right-0 h-12 flex opacity-80 animate-waves" 
+             style={{ 
+               backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='20' viewBox='0 0 100 20' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 10 Q 25 20, 50 10 T 100 10' fill='none' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E")`,
+               backgroundRepeat: 'repeat-x' 
+             }} 
+        />
+
+        {/* White Sand Base */}
+        <div className="absolute bottom-0 left-0 right-0 h-[240px] bg-white border-t-[3px] border-white z-0" />
+
+        {/* LINE ART BEACH ELEMENTS */}
+        
+        {/* Left Palm Tree */}
+        <div className="absolute bottom-[160px] left-4 md:left-16 w-32 h-48 z-10 animate-float-soft">
+          <svg viewBox="0 0 100 150" className="w-full h-full overflow-visible">
+            {/* Trunk */}
+            <path d="M45,150 Q40,80 50,50 Q55,80 55,150 Z" fill="white" stroke="#0b5c33" strokeWidth="3"/>
+            {/* Leaves */}
+            <path d="M50,50 Q20,40 5,60 Q25,50 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q25,10 10,20 Q30,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q50,0 70,10 Q60,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q80,20 95,30 Q75,40 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q85,55 90,75 Q70,60 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
           </svg>
         </div>
 
-        {/* Realistic Right Palm Tree */}
-        <div className="absolute -bottom-20 -right-20 w-96 h-[36rem] animate-sway-delayed opacity-90">
-          <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-2xl" transform="scale(-1, 1)">
-            <path d="M48,100 Q42,60 50,40 Q53,60 52,100 Z" fill="url(#trunk)"/>
-            <path d="M50,40 C30,30 10,45 5,55 C20,50 35,45 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C35,15 15,15 10,20 C30,25 40,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C55,10 70,10 80,15 C65,25 55,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C75,25 90,30 95,45 C80,40 65,40 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C70,55 85,65 90,75 C75,60 60,50 50,40" fill="url(#leaf)"/>
+        {/* Right Palm Tree */}
+        <div className="absolute bottom-[140px] right-2 md:right-12 w-40 h-56 z-10 animate-float-delayed" style={{ transform: 'scaleX(-1)' }}>
+          <svg viewBox="0 0 100 150" className="w-full h-full overflow-visible">
+            <path d="M45,150 Q40,80 50,50 Q55,80 55,150 Z" fill="white" stroke="#0b5c33" strokeWidth="3"/>
+            <path d="M50,50 Q20,40 5,60 Q25,50 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q25,10 10,20 Q30,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q50,0 70,10 Q60,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q80,20 95,30 Q75,40 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q85,55 90,75 Q70,60 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
           </svg>
         </div>
+
+        {/* Goa Beach Shack */}
+        <div className="absolute bottom-[150px] right-32 md:right-48 w-32 h-24 bg-[#1ebd60] border-[3px] border-[#0b5c33] z-10">
+           <div className="absolute -top-6 left-[-10%] w-[120%] h-6 bg-white border-[3px] border-[#0b5c33]" />
+           <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-[#ff007f] border-[2px] border-[#0b5c33] px-2 py-0.5">
+             <span className="text-[8px] font-bold text-white whitespace-nowrap">GOA BEACH</span>
+           </div>
+           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-16 h-10 bg-white border-x-[3px] border-t-[3px] border-[#0b5c33]" />
+        </div>
+
+        {/* Yellow Umbrella & Surfboards */}
+        <div className="absolute bottom-[120px] left-32 md:left-48 z-10">
+           {/* Umbrella Top */}
+           <div className="w-16 h-8 bg-[#ffe600] rounded-t-full border-[3px] border-[#0b5c33]" />
+           {/* Stick */}
+           <div className="w-1 h-12 bg-white border-x-2 border-[#0b5c33] mx-auto -mt-1" />
+        </div>
+
+        <div className="absolute bottom-[130px] right-[40%] flex gap-2 z-10">
+           {/* Surfboard 1 */}
+           <div className="w-4 h-16 bg-[#ffe600] rounded-t-full border-[2px] border-[#0b5c33] rotate-12" />
+           {/* Surfboard 2 */}
+           <div className="w-4 h-14 bg-white rounded-t-full border-[2px] border-[#0b5c33] -rotate-6 mt-2" />
+        </div>
+
       </div>
 
       <audio ref={audioRef} className="hidden" />
 
-      {/* ─── CLEAN HEADER (Z-10) ──────────────────────────────────── */}
-      <header className="relative z-10 shrink-0 border-b border-white/10 bg-white/5 backdrop-blur-md">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="relative inline-flex items-center justify-center pt-2 select-none hover:scale-105 transition-transform cursor-default">
-            {/* The Liquid Gold Hacker House Logo */}
-            <span className="text-4xl md:text-5xl font-serif-tall text-liquid-gold tracking-tighter drop-shadow-md">
-              HACKER HOUSE
-            </span>
-            <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[35%] text-5xl md:text-6xl font-cursive text-[#ff007f] -rotate-6 drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
-              गोवा
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowMetrics(!showMetrics)}
-              className="text-xs px-6 py-2.5 bg-white/90 hover:bg-white text-slate-800 rounded-full shadow-lg font-semibold transition-all hover:-translate-y-0.5 btn-shine"
-            >
-              Telemetry {latestMetrics ? `(${latestMetrics.totalMs}ms)` : ""}
-            </button>
-            <button
-              onClick={() => setShowKB(!showKB)}
-              className="text-xs px-6 py-2.5 bg-gradient-to-r from-yellow-300 to-yellow-400 hover:from-yellow-400 hover:to-yellow-500 text-slate-900 rounded-full shadow-lg shadow-yellow-500/20 font-bold transition-all hover:-translate-y-0.5 btn-shine"
-            >
-              Knowledge {documents.length > 0 ? `(${documents.length})` : ""}
-            </button>
-          </div>
+      {/* ─── TYPOGRAPHY HEADER (Z-20) ─────────────────────────────── */}
+      <header className="relative z-20 pt-10 pb-4 text-center">
+        <h1 className="text-5xl md:text-6xl font-serif-italic text-white tracking-wide flex items-center justify-center gap-3">
+          Hacker House <span className="text-2xl md:text-3xl not-italic text-[#ffe600]">✦</span> Goa
+        </h1>
+        <p className="text-xs md:text-sm font-mono-bold text-white/90 tracking-[0.3em] mt-4 uppercase">
+          28-31 OCT 2026 • GOA, INDIA
+        </p>
+        
+        {/* Top Controls - ONLY Metrics Now */}
+        <div className="flex items-center justify-center gap-4 mt-6">
+          <button
+            onClick={() => setShowMetrics(!showMetrics)}
+            className="text-[10px] font-bold uppercase tracking-widest px-4 py-2 bg-transparent border-2 border-white/40 text-white hover:bg-white hover:text-[#0b5c33] transition-colors"
+          >
+            Metrics Status
+          </button>
         </div>
       </header>
 
-      {/* ─── HERITAGE-STYLE METRICS DASHBOARD ─────────────────────── */}
+      {/* ─── VECTOR-STYLE METRICS DASHBOARD ───────────────────────── */}
       {showMetrics && (
-        <div className="relative z-10 shrink-0 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.15)]">
-          <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-            <div className="text-center space-y-2 mb-4">
-              <h3 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-rose-500">
-                Pipeline Analytics
-              </h3>
-              <p className="text-base text-slate-500 font-medium">Real-time breakdown of our sub-200ms RAG architecture</p>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+        <div className="relative z-20 shrink-0 bg-[#0a4d2b] border-y-4 border-[#ffe600]">
+          <div className="max-w-5xl mx-auto px-6 py-6">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
-                { label: "Whisper STT", value: latestMetrics?.sttMs, color: "bg-purple-500", shadow: "shadow-purple-500/30" },
-                { label: "Vector DB", value: latestMetrics?.retrievalMs, color: "bg-blue-500", shadow: "shadow-blue-500/30" },
-                { label: "Groq TTFT", value: latestMetrics?.ttftMs, color: "bg-emerald-500", shadow: "shadow-emerald-500/30" },
-                { label: "Sarvam TTS", value: latestMetrics?.ttsMs, color: "bg-orange-500", shadow: "shadow-orange-500/30" },
+                { label: "STT", value: latestMetrics?.sttMs },
+                { label: "RETRIEVAL", value: latestMetrics?.retrievalMs },
+                { label: "TTFT", value: latestMetrics?.ttftMs },
+                { label: "TTS", value: latestMetrics?.ttsMs },
               ].map((metric, i) => (
-                <div key={i} className="group flex flex-col items-center p-6 bg-white rounded-3xl shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                  <div className={`w-14 h-14 ${metric.color} text-white rounded-full flex items-center justify-center font-bold mb-4 shadow-lg ${metric.shadow} group-hover:scale-110 transition-transform`}>
-                    {metric.label.charAt(0)}
-                  </div>
-                  <span className="text-sm text-slate-500 font-semibold mb-1 text-center">{metric.label}</span>
-                  <span className="text-2xl font-bold text-slate-800">{metric.value ? `${metric.value}ms` : "--"}</span>
+                <div key={i} className="flex flex-col items-center p-4 bg-white border-[3px] border-[#0b5c33]">
+                  <span className="text-[10px] text-[#0b5c33] font-bold tracking-widest mb-1">{metric.label}</span>
+                  <span className="text-2xl font-black text-black">{metric.value ? `${metric.value}ms` : "--"}</span>
                 </div>
               ))}
               
-              <div className="group flex flex-col items-center p-6 bg-gradient-to-br from-yellow-50 to-white rounded-3xl shadow-md border border-yellow-100 col-span-2 md:col-span-1 transform md:scale-110 hover:shadow-2xl transition-all duration-300">
-                 <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-500 text-white rounded-full flex items-center justify-center font-bold mb-4 shadow-lg shadow-yellow-500/40 group-hover:rotate-12 transition-transform">
-                    ⚡
-                  </div>
-                 <span className="text-sm text-yellow-700 font-bold mb-1 text-center">Total TTFA</span>
-                 <span className="text-3xl font-black text-slate-900">{latestMetrics ? `${latestMetrics.totalMs}ms` : "--"}</span>
+              <div className="flex flex-col items-center p-4 bg-[#ffe600] border-[3px] border-[#0b5c33] col-span-2 md:col-span-1">
+                 <span className="text-[10px] text-[#0b5c33] font-bold tracking-widest mb-1">TOTAL TTFA</span>
+                 <span className="text-3xl font-black text-black">{latestMetrics ? `${latestMetrics.totalMs}ms` : "--"}</span>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-8 text-sm font-medium pt-6 border-t border-slate-100">
-              <span className="text-slate-400">Queries: <span className="text-slate-800 font-bold text-lg">{latencyHistory.length}</span></span>
-              <span className="text-slate-400">Median (P50): <span className="text-emerald-500 font-bold text-lg">{p50}ms</span></span>
-              <span className="text-slate-400">P70: <span className="text-orange-500 font-bold text-lg">{p70}ms</span></span>
-              <span className="text-slate-400">Peak (P100): <span className="text-pink-500 font-bold text-lg">{p100}ms</span></span>
+            <div className="flex flex-wrap items-center justify-center gap-6 text-[10px] tracking-widest font-bold pt-4 text-white uppercase">
+              <span>Runs: {latencyHistory.length}</span>
+              <span>P50: {p50}ms</span>
+              <span>P70: {p70}ms</span>
+              <span className="text-[#ffe600]">P100: {p100}ms</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ─── HERITAGE-STYLE KNOWLEDGE BASE ────────────────────────── */}
-      {showKB && (
-        <div className="relative z-10 shrink-0 bg-white/95 backdrop-blur-xl border-b border-slate-200 p-8 shadow-lg">
-          <div className="max-w-5xl mx-auto space-y-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-rose-500 font-poppins">
-                Train the Assistant
-              </h3>
-            </div>
-            <div className="flex gap-4">
-              <textarea
-                value={manualText}
-                onChange={(e) => setManualText(e.target.value)}
-                placeholder="Paste contextual information here..."
-                rows={2}
-                className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 transition-all resize-none shadow-inner text-slate-700 font-medium"
-              />
-              <button
-                onClick={addKnowledge}
-                disabled={!manualText.trim()}
-                className="px-10 py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold text-lg rounded-2xl shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 hover:-translate-y-1 disabled:opacity-50 disabled:hover:translate-y-0 transition-all btn-shine"
-              >
-                Index
-              </button>
-            </div>
-            {documents.length > 0 && (
-              <div className="max-h-40 overflow-y-auto space-y-3 mt-6 pr-2">
-                {documents.map((doc) => (
-                  <div key={doc.id} className="flex items-start gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <span className="shrink-0 text-pink-500 bg-pink-50 w-8 h-8 rounded-full flex items-center justify-center font-bold">✦</span>
-                    <span className="text-sm text-slate-600 line-clamp-2 leading-relaxed font-medium pt-1">{doc.transcript}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ─── CLEAN FLOATING CHAT AREA ─────────────────────────────── */}
-      <div ref={chatContainerRef} className="relative z-10 flex-1 overflow-y-auto scroll-smooth pb-12">
-        <div className="max-w-4xl mx-auto px-6 py-10 space-y-8">
+      {/* ─── CHAT INTERFACE (Z-20) ────────────────────────────────── */}
+      <div ref={chatContainerRef} className="relative z-20 flex-1 overflow-y-auto scroll-smooth pb-48 pt-10">
+        <div className="max-w-2xl mx-auto px-6 space-y-6">
+          
           {messages.length === 0 && !isListening && (
-            <div className="flex flex-col items-center justify-center pt-20 text-center space-y-6">
-              <div className="w-28 h-28 bg-white/10 backdrop-blur-md rounded-[2rem] flex items-center justify-center shadow-2xl border border-white/20 animate-float">
-                <span className="text-6xl drop-shadow-md">✨</span>
-              </div>
-              <div className="max-w-lg">
-                <h2 className="text-5xl text-white font-cursive tracking-wide mb-4 drop-shadow-lg">Hello there!</h2>
-                <p className="text-base text-white/90 leading-relaxed font-medium drop-shadow">
-                  Tap the microphone to speak naturally. The system is engineered to respond dynamically with zero perceived latency.
-                </p>
-              </div>
+            <div className="flex justify-center pt-20">
+               <div className="px-6 py-4 bg-white border-[3px] border-[#0b5c33] text-center max-w-sm">
+                  <p className="text-sm font-bold text-black uppercase tracking-wider">
+                     Voice RAG Initialized.<br/><span className="text-[#1ebd60]">System Ready.</span>
+                  </p>
+               </div>
             </div>
           )}
 
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[80%] px-8 py-5 rounded-[2rem] shadow-xl transition-all duration-300 hover:-translate-y-1 ${
+                className={`max-w-[85%] px-6 py-4 border-[3px] border-[#0b5c33] ${
                   msg.role === "user"
-                    ? "bg-gradient-to-br from-yellow-300 to-yellow-400 text-slate-900 rounded-br-md shadow-yellow-500/20"
-                    : "bg-white/95 backdrop-blur-md text-slate-800 rounded-bl-md border border-white/50"
+                    ? "bg-[#ffe600] text-black"
+                    : "bg-white text-black"
                 }`}
               >
-                <p className="text-[16px] font-medium leading-relaxed whitespace-pre-wrap">
+                <p className="text-[14px] font-bold leading-relaxed whitespace-pre-wrap">
                   {msg.content}
                   {msg.isStreaming && (
-                    <span className="inline-block w-2.5 h-5 ml-2 bg-gradient-to-t from-pink-400 to-rose-400 rounded-full animate-pulse align-middle" />
+                    <span className="inline-block w-2 h-4 ml-1 bg-[#ff007f] animate-pulse align-middle" />
                   )}
                 </p>
                 {msg.latencyMs !== undefined && !msg.isStreaming && (
-                  <p className={`text-[11px] font-bold mt-3 uppercase tracking-wider ${msg.role === "user" ? "text-yellow-800" : "text-slate-400"}`}>
-                    ⚡ {msg.latencyMs}ms elapsed
+                  <p className="text-[9px] font-black mt-2 uppercase tracking-widest opacity-60">
+                    ⚡ {msg.latencyMs}ms Total
                   </p>
                 )}
               </div>
@@ -707,13 +575,10 @@ export default function HomePage() {
 
           {isListening && (
             <div className="flex justify-end">
-              <div className="max-w-[80%] px-8 py-5 rounded-[2rem] rounded-br-md shadow-xl bg-white/20 backdrop-blur-lg border border-white/30 text-white">
-                <div className="flex items-center gap-3 text-base font-medium">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-                  </span>
-                  Recording...
+              <div className="max-w-[80%] px-6 py-4 border-[3px] border-[#0b5c33] bg-[#ff007f] text-white">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest">
+                  <span className="w-2 h-2 bg-white rounded-full animate-ping"></span>
+                  Listening
                 </div>
               </div>
             </div>
@@ -721,10 +586,10 @@ export default function HomePage() {
 
           {isThinking && (
             <div className="flex justify-start">
-              <div className="px-8 py-6 rounded-[2rem] rounded-bl-md shadow-xl bg-white/95 backdrop-blur-md flex gap-2 items-center">
-                <div className="w-2.5 h-2.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <div className="w-2.5 h-2.5 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <div className="w-2.5 h-2.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="px-6 py-5 border-[3px] border-[#0b5c33] bg-white flex gap-1.5 items-center">
+                <div className="w-2 h-2 bg-[#0b5c33] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                <div className="w-2 h-2 bg-[#1ebd60] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                <div className="w-2 h-2 bg-[#ffe600] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
               </div>
             </div>
           )}
@@ -733,63 +598,61 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ─── PREMIUM FLOATING INPUT BAR W/ HOLOGRAPHIC AURA ───────── */}
-      <div className="relative z-10 shrink-0 p-6 pb-10 pointer-events-none">
-        <div className="max-w-3xl mx-auto flex items-center gap-3 bg-white/95 backdrop-blur-2xl p-3 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-white/50 pointer-events-auto">
+      {/* ─── BOTTOM BANNER ────────────────────────────────────────── */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 w-max max-w-[95%] z-30 pointer-events-none">
+        <div className="bg-white px-4 md:px-8 py-2 md:py-3 border-[3px] border-[#0b5c33] flex items-center justify-center">
+           <p className="text-[#0b5c33] font-mono-bold text-[10px] md:text-sm tracking-widest whitespace-nowrap">
+             LESS NOISE <span className="text-black px-2 md:px-3 text-lg align-middle leading-none">✦</span> MORE SIGNAL <span className="text-black px-2 md:px-3 text-lg align-middle leading-none">✦</span> #FRAMEINGOA
+           </p>
+        </div>
+      </div>
+
+      {/* ─── VECTOR FLOATING INPUT BAR ────────────────────────────── */}
+      <div className="absolute bottom-20 left-0 right-0 z-40 p-4">
+        <div className="max-w-2xl mx-auto flex items-center gap-3 bg-white p-2 border-[3px] border-[#0b5c33] shadow-[0_10px_0_0_rgba(11,92,51,0.2)]">
           
-          <div className="relative flex items-center justify-center">
-            {/* The Holographic Voice Aura */}
-            {isListening && (
-              <>
-                <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-rose-500 rounded-full aura-1" />
-                <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 to-pink-500 rounded-full aura-2" />
-                <div className="absolute inset-0 bg-gradient-to-r from-rose-400 to-orange-500 rounded-full aura-3" />
-              </>
+          <button
+            onClick={isListening ? stopListening : startListening}
+            disabled={isThinking}
+            className={`shrink-0 w-12 h-12 flex items-center justify-center border-[3px] border-[#0b5c33] transition-colors disabled:opacity-50 ${
+              isListening
+                ? "bg-[#ff007f] text-white"
+                : isSpeaking
+                ? "bg-[#1ebd60] text-white"
+                : "bg-[#ffe600] text-black hover:bg-[#ff007f] hover:text-white"
+            }`}
+          >
+            {isListening ? (
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1" /></svg>
+            ) : isSpeaking ? (
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M3 9v6h4l5 5V4L7 9H3z" /><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                <path d="M19 10v2a7 7 0 01-14 0v-2" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="square" />
+                <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="2.5" />
+              </svg>
             )}
-            
-            <button
-              onClick={isListening ? stopListening : startListening}
-              disabled={isThinking}
-              className={`group relative shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 disabled:opacity-50 z-10 ${
-                isListening
-                  ? "bg-rose-500 text-white shadow-lg shadow-rose-500/40"
-                  : isSpeaking
-                  ? "bg-slate-100 text-emerald-500"
-                  : "bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-lg shadow-pink-500/30 hover:scale-105 hover:shadow-pink-500/50 btn-shine"
-              }`}
-            >
-              {isListening ? (
-                <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
-              ) : isSpeaking ? (
-                <svg className="w-6 h-6 relative z-10" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3z" /><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6 relative z-10 transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                  <path d="M19 10v2a7 7 0 01-14 0v-2" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                  <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                </svg>
-              )}
-            </button>
-          </div>
+          </button>
 
           <input
             type="text"
             value={textQuery}
             onChange={(e) => setTextQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submitTextQuery()}
-            placeholder={isListening ? "Listening..." : "Type or speak your question..."}
+            placeholder={isListening ? "Listening..." : "Type or speak..."}
             disabled={isThinking || isListening}
-            className="flex-1 h-14 px-5 bg-transparent text-slate-800 placeholder:text-slate-400 font-medium text-[16px] focus:outline-none disabled:opacity-50"
+            className="flex-1 h-12 px-3 bg-transparent text-black placeholder:text-slate-400 font-bold text-sm focus:outline-none disabled:opacity-50"
           />
 
           <button
             onClick={submitTextQuery}
             disabled={!textQuery.trim() || isThinking || isListening}
-            className="group shrink-0 w-14 h-14 bg-slate-900 text-white rounded-full flex items-center justify-center hover:bg-slate-800 hover:shadow-lg disabled:opacity-30 transition-all duration-300 btn-shine"
+            className="shrink-0 w-12 h-12 bg-black text-white border-[3px] border-[#0b5c33] flex items-center justify-center hover:bg-[#ffe600] hover:text-black disabled:opacity-30 transition-colors"
           >
-            <svg className="w-5 h-5 translate-x-0.5 transition-transform duration-300 group-hover:translate-x-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-5 h-5 translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3" strokeLinecap="square" strokeLinejoin="miter">
                <line x1="5" y1="12" x2="19" y2="12"></line>
                <polyline points="12 5 19 12 12 19"></polyline>
             </svg>
@@ -799,10 +662,10 @@ export default function HomePage() {
 
       {/* ─── ERROR TOAST ──────────────────────────────────────────── */}
       {error && (
-        <div className="fixed top-8 left-1/2 -translate-x-1/2 max-w-md w-full p-4 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl z-50 flex items-center gap-4 border border-red-100">
-          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500 font-bold shrink-0 text-xl">!</div>
-          <span className="font-semibold text-slate-700 text-sm flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-slate-400 hover:text-slate-600 font-bold p-2 transition-colors">✕</button>
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 max-w-md w-full p-4 bg-white border-[3px] border-[#0b5c33] z-50 flex items-center gap-3">
+          <div className="w-8 h-8 bg-[#ff007f] flex items-center justify-center text-white font-bold shrink-0">!</div>
+          <span className="font-bold text-black text-sm flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="text-black hover:text-[#ff007f] font-bold p-2 text-lg leading-none">✕</button>
         </div>
       )}
     </div>
