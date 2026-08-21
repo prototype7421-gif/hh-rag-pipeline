@@ -1,0 +1,41 @@
+{
+  "sorted_middleware": [
+    "/api/tts/route"
+  ],
+  "middleware": {},
+  "instrumentation": null,
+  "functions": {
+    "/api/tts/route": {
+      "files": [
+        "server/middleware-build-manifest.js",
+        "server/interception-route-rewrite-manifest.js",
+        "server/server-reference-manifest.js",
+        "server/app/api/tts/route_client-reference-manifest.js",
+        "server/edge/chunks/_next-internal_server_app_api_tts_route_actions_0hnan7y.js",
+        "server/edge/chunks/node_modules_next_dist_esm_052kxrs._.js",
+        "server/edge/chunks/node_modules_next_dist_compiled_05j2h~o._.js",
+        "server/edge/chunks/node_modules_next_dist_0lbla8b._.js",
+        "server/edge/chunks/[root-of-the-server]__0uy59g9._.js",
+        "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_10zg0ts.js"
+      ],
+      "name": "app/api/tts/route",
+      "page": "/api/tts/route",
+      "entrypoint": "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_10zg0ts.js",
+      "matchers": [
+        {
+          "regexp": "^/api/tts(?:/)?$",
+          "originalSource": "/api/tts"
+        }
+      ],
+      "wasm": [],
+      "assets": [],
+      "env": {
+        "__NEXT_BUILD_ID": "development",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "EqCRxjEik7BJWi2ES6oPTNhkIcPEr4/J3UBV90sbvzk=",
+        "__NEXT_PREVIEW_MODE_ID": "2a8963746ff7474f08bef2ef89b9bfb9",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "4de1e2efe15369b614553b7d5716995070101742ad5dbf1f1467b248f3235c79",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "93fcb267d7119d220b1e3b88e114549a190a8ad6a4c7da436601effd42754697"
+      }
+    }
+  }
+}

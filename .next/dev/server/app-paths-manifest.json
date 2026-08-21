@@ -1,0 +1,4 @@
+{
+  "/api/rag/documents/route": "app/api/rag/documents/route.js",
+  "/page": "app/page.js"
+}
