@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// CHANGED: Force Next.js Edge Runtime for instant execution
+// Force Next.js Edge Runtime for instant execution
 export const runtime = "edge";
 
 export async function POST(request: NextRequest) {
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
         inputs: [text.slice(0, 500)], 
         target_language_code: languageCode || "en-IN",
         speaker: speaker || "shubh",
-        pace: 1.4, 
+        pace: 1.0, // <--- CHANGED: Set to 1.0 for natural, normal human speech speed
         speech_sample_rate: 24000, 
         model: "bulbul:v3", 
       }),
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     const audioBase64 = data.audios[0] as string;
     
-    // CHANGED: Edge-compatible Base64 decoding (replaces Node Buffer)
+    // Edge-compatible Base64 decoding
     const binaryString = atob(audioBase64);
     const bytes = new Uint8Array(binaryString.length);
     for (let i = 0; i < binaryString.length; i++) {
