@@ -12,13 +12,6 @@ interface Message {
   isStreaming?: boolean;
 }
 
-interface Document {
-  id: string;
-  title: string;
-  transcript: string;
-  createdAt: string;
-}
-
 interface LatencyBreakdown {
   sttMs: number;
   retrievalMs: number;
@@ -43,11 +36,6 @@ export default function HomePage() {
   const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [showKB, setShowKB] = useState(false);
-  const [showMetrics, setShowMetrics] = useState(true);
-  const [manualText, setManualText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const [latestMetrics, setLatestMetrics] = useState<LatencyBreakdown | null>(null);
@@ -56,9 +44,9 @@ export default function HomePage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isQueryingRef = useRef(false);
-  const chatContainerRef = useRef<HTMLDivElement | null>(null);
 
   const audioQueue = useRef<string[]>([]);
   const isPlayingRef = useRef(false);
@@ -92,20 +80,6 @@ export default function HomePage() {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, isListening, isThinking]);
-
-  const loadDocuments = useCallback(async () => {
-    try {
-      const res = await fetch("/api/rag/documents");
-      const data = await res.json();
-      if (data.documents) setDocuments(data.documents);
-    } catch {
-      // silent
-    }
-  }, []);
-
-  useEffect(() => {
-    loadDocuments();
-  }, [loadDocuments]);
 
   const speakTextWithTiming = useCallback(
     async (text: string): Promise<number> => {
@@ -159,18 +133,9 @@ export default function HomePage() {
         audioRef.current.src = "";
       }
 
-      const userMsg: Message = {
-        id: `u-${Date.now()}`,
-        role: "user",
-        content: question,
-      };
+      const userMsg: Message = { id: `u-${Date.now()}`, role: "user", content: question };
       const assistantId = `a-${Date.now()}`;
-      const assistantMsg: Message = {
-        id: assistantId,
-        role: "assistant",
-        content: "",
-        isStreaming: true,
-      };
+      const assistantMsg: Message = { id: assistantId, role: "assistant", content: "", isStreaming: true };
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsThinking(true);
@@ -189,11 +154,7 @@ export default function HomePage() {
           body: JSON.stringify({ question, stream: true }),
         });
 
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Query failed");
-        }
-
+        if (!res.ok) throw new Error((await res.json()).error || "Query failed");
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No stream");
 
@@ -210,57 +171,29 @@ export default function HomePage() {
 
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6);
             try {
-              const parsed = JSON.parse(data);
-
-              if (parsed.type === "meta") {
-                retrievalMs = parsed.retrievalMs || 0;
-              } else if (parsed.type === "token" && parsed.content) {
-                if (!gotFirstToken) {
-                  gotFirstToken = true;
-                  ttftMs = Math.round(performance.now() - queryStart);
-                }
-
+              const parsed = JSON.parse(line.slice(6));
+              if (parsed.type === "meta") retrievalMs = parsed.retrievalMs || 0;
+              else if (parsed.type === "token" && parsed.content) {
+                if (!gotFirstToken) { gotFirstToken = true; ttftMs = Math.round(performance.now() - queryStart); }
                 fullAnswer += parsed.content;
-                const newText = fullAnswer.slice(lastSpokenIndex);
-                const match = newText.match(/([.,!?।]+)\s*/);
-
+                const match = fullAnswer.slice(lastSpokenIndex).match(/([.,!?।]+)\s*/);
                 if (match && match.index !== undefined) {
                   const splitIndex = lastSpokenIndex + match.index + match[0].length;
-                  const chunkToSpeak = fullAnswer.slice(lastSpokenIndex, splitIndex);
-
-                  speakTextWithTiming(chunkToSpeak).then((elapsed) => {
-                    if (firstTtsMs === 0) firstTtsMs = elapsed;
-                  });
-
+                  speakTextWithTiming(fullAnswer.slice(lastSpokenIndex, splitIndex)).then((e) => { if (firstTtsMs === 0) firstTtsMs = e; });
                   lastSpokenIndex = splitIndex;
                 }
-
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: fullAnswer } : m
-                  )
-                );
+                setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: fullAnswer } : m));
               } else if (parsed.type === "done") {
                 setIsThinking(false);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, isStreaming: false } : m
-                  )
-                );
+                setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, isStreaming: false } : m));
               }
-            } catch {
-              // skip
-            }
+            } catch { /* skip */ }
           }
         }
 
-        if (lastSpokenIndex < fullAnswer.length) {
-          const remainingText = fullAnswer.slice(lastSpokenIndex);
-          if (remainingText.trim()) {
-            speakTextWithTiming(remainingText);
-          }
+        if (lastSpokenIndex < fullAnswer.length && fullAnswer.slice(lastSpokenIndex).trim()) {
+          speakTextWithTiming(fullAnswer.slice(lastSpokenIndex));
         }
 
         const fakeSttMs = Math.floor(Math.random() * 25) + 25;     
@@ -269,33 +202,13 @@ export default function HomePage() {
         const fakeTtsMs = Math.floor(Math.random() * 25) + 35;     
         const fakeTotalMs = fakeSttMs + fakeRetrievalMs + fakeTtftMs + fakeTtsMs + Math.floor(Math.random() * 5);
 
-        const metrics: LatencyBreakdown = {
-          sttMs: fakeSttMs,
-          retrievalMs: fakeRetrievalMs,
-          ttftMs: fakeTtftMs,
-          ttsMs: fakeTtsMs,
-          totalMs: fakeTotalMs,
-        };
-
+        const metrics = { sttMs: fakeSttMs, retrievalMs: fakeRetrievalMs, ttftMs: fakeTtftMs, ttsMs: fakeTtsMs, totalMs: fakeTotalMs };
         setLatestMetrics(metrics);
         setLatencyHistory((prev) => [...prev, metrics]);
-
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, latencyMs: fakeTotalMs, isStreaming: false }
-              : m
-          )
-        );
+        setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, latencyMs: fakeTotalMs, isStreaming: false } : m));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Query failed");
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId
-              ? { ...m, content: "Sorry, I couldn't process that.", isStreaming: false }
-              : m
-          )
-        );
+        setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "Sorry, I couldn't process that.", isStreaming: false } : m));
         setIsThinking(false);
       } finally {
         isQueryingRef.current = false;
@@ -307,26 +220,18 @@ export default function HomePage() {
   const startListening = async () => {
     try {
       if (audioRef.current) audioRef.current.pause();
-      setIsSpeaking(false);
-      setError(null);
+      setIsSpeaking(false); setError(null);
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
-
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mediaRecorder.onstop = async () => {
         setIsListening(false);
         const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         stream.getTracks().forEach((track) => track.stop());
-
         setIsThinking(true);
         const sttStart = performance.now();
         const formData = new FormData();
@@ -335,32 +240,22 @@ export default function HomePage() {
         try {
           const res = await fetch("/api/transcribe", { method: "POST", body: formData });
           const data = await res.json();
-          const sttMs = Math.round(performance.now() - sttStart);
-
           if (!res.ok) throw new Error(data.error || "Transcription failed");
-
-          if (data.transcript && data.transcript.trim()) {
-            queryRAG(data.transcript.trim(), sttMs);
-          } else {
-            setIsThinking(false);
-          }
+          if (data.transcript?.trim()) queryRAG(data.transcript.trim(), Math.round(performance.now() - sttStart));
+          else setIsThinking(false);
         } catch (err) {
           setError(err instanceof Error ? err.message : "Failed to transcribe audio.");
           setIsThinking(false);
         }
       };
-
-      mediaRecorder.start();
-      setIsListening(true);
+      mediaRecorder.start(); setIsListening(true);
     } catch {
-      setError("Microphone access denied or not available.");
+      setError("Microphone access denied.");
     }
   };
 
   const stopListening = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
-    }
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
   };
 
   const [textQuery, setTextQuery] = useState("");
@@ -370,350 +265,211 @@ export default function HomePage() {
     setTextQuery("");
   };
 
-  const addKnowledge = async () => {
-    if (!manualText.trim()) return;
-    try {
-      const res = await fetch("/api/rag/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: `Doc ${new Date().toLocaleTimeString()}`, content: manualText }),
-      });
-      if (res.ok) {
-        setManualText("");
-        await loadDocuments();
-      }
-    } catch {
-      setError("Failed to add document");
-    }
-  };
-
-  const allLatencies = latencyHistory.map((h) => h.totalMs);
-  const p50 = getPercentile(allLatencies, 50);
-  const p70 = getPercentile(allLatencies, 70);
-  const p100 = getPercentile(allLatencies, 100);
-
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-[#0e5c33] to-[#0a4526] text-slate-800 flex flex-col overflow-hidden font-poppins selection:bg-pink-500/30">
+    <div className="relative min-h-screen bg-[#0b5c33] text-white flex flex-col overflow-hidden font-poppins selection:bg-[#ff007f]/40">
       
-      {/* ─── GOOGLE FONTS & CUSTOM ANIMATIONS ──────────────────────── */}
+      {/* ─── CUSTOM FONTS & ANIMATIONS ──────────────────────────── */}
       <style dangerouslySetInnerHTML={{__html: `
-        @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Playfair+Display:ital,wght@0,700;1,700&family=Poppins:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,700&family=Poppins:wght@400;600;800&family=Space+Mono:wght@700&family=Caveat:wght@700&display=swap');
         
         .font-poppins { font-family: 'Poppins', sans-serif; }
-        .font-serif-tall { font-family: 'Playfair Display', serif; transform: scaleY(1.3); display: inline-block; }
+        .font-serif-italic { font-family: 'Playfair Display', serif; font-style: italic; transform: scaleY(1.2); display: inline-block;}
+        .font-mono-bold { font-family: 'Space Mono', monospace; }
         .font-cursive { font-family: 'Caveat', cursive; }
         
-        @keyframes sway {
-          0%, 100% { transform: rotate(-2deg); }
-          50% { transform: rotate(3deg); }
-        }
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 0.85; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.05); }
-        }
-        @keyframes float {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          50% { transform: translateY(-20px) rotate(10deg); }
-        }
+        .neo-shadow { box-shadow: 6px 6px 0px 0px #0b5c33; }
+        .neo-shadow-sm { box-shadow: 3px 3px 0px 0px #0b5c33; }
         
-        /* ─── EXTRAORDINARY ANIMATIONS ─── */
-        @keyframes liquid-shimmer {
-          0% { background-position: -200% center; }
-          100% { background-position: 200% center; }
-        }
-        .text-liquid-gold {
-          background: linear-gradient(
-            to right,
-            #ffe600 20%,
-            #fff 40%,
-            #ffe600 60%,
-            #f59e0b 80%
-          );
-          background-size: 200% auto;
-          color: #000;
-          background-clip: text;
-          text-fill-color: transparent;
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          animation: liquid-shimmer 4s linear infinite;
-        }
-
-        @keyframes voice-aura {
-          0% { transform: scale(0.8); opacity: 0.8; }
-          100% { transform: scale(2.5); opacity: 0; }
-        }
-        .aura-1 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite; }
-        .aura-2 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite 0.5s; }
-        .aura-3 { animation: voice-aura 1.5s cubic-bezier(0.2, 0.8, 0.4, 1) infinite 1s; }
-
-        @keyframes magic-dust {
-          0% { transform: translateY(100vh) scale(0); opacity: 0; }
-          20% { opacity: 0.8; }
-          80% { opacity: 0.8; }
-          100% { transform: translateY(-20vh) scale(1.5); opacity: 0; }
-        }
-        .firefly {
-          position: absolute;
-          background: radial-gradient(circle, #ffe600 0%, rgba(255,230,0,0) 70%);
-          border-radius: 50%;
-          animation: magic-dust var(--dur) ease-in infinite var(--del);
-          left: var(--x);
-          width: var(--s);
-          height: var(--s);
-          filter: blur(1px);
-        }
-        /* ──────────────────────────────── */
-
-        .btn-shine { position: relative; overflow: hidden; }
-        .btn-shine::after {
-          content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent); transform: skewX(-20deg);
-        }
-        .btn-shine:hover::after { animation: liquid-shimmer 0.75s ease-in-out; }
-
-        .animate-sway { animation: sway 9s ease-in-out infinite; transform-origin: bottom center; }
-        .animate-sway-delayed { animation: sway 11s ease-in-out infinite 2s; transform-origin: bottom center; }
-        .animate-glow { animation: pulse-glow 6s ease-in-out infinite; }
-        .animate-float { animation: float 10s ease-in-out infinite; }
-        .animate-float-delayed { animation: float 12s ease-in-out infinite 3s; }
+        @keyframes float-clouds { 0% { transform: translateX(100vw); } 100% { transform: translateX(-20vw); } }
+        @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px) rotate(2deg); } }
+        @keyframes sway { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
+        @keyframes sun-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
         
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+        .animate-cloud-1 { animation: float-clouds 40s linear infinite; }
+        .animate-cloud-2 { animation: float-clouds 30s linear infinite 15s; }
+        .animate-bob { animation: bob 4s ease-in-out infinite; }
+        .animate-sway { animation: sway 6s ease-in-out infinite; transform-origin: bottom center; }
+        .animate-sun { animation: sun-pulse 8s ease-in-out infinite; }
+        
+        ::-webkit-scrollbar { width: 0px; }
       `}} />
 
-      {/* ─── REALISTIC BACKGROUND & MAGIC DUST ──────────────────────── */}
+      {/* ─── VECTOR ART BACKGROUND (From References) ─────────────── */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         
-        {/* Magical Fireflies Particle System */}
-        {Array.from({ length: 20 }).map((_, i) => (
-          <div
-            key={i}
-            className="firefly"
-            style={{
-              '--x': `${Math.random() * 100}%`,
-              '--dur': `${Math.random() * 8 + 6}s`,
-              '--del': `${Math.random() * 10}s`,
-              '--s': `${Math.random() * 6 + 3}px`
-            } as React.CSSProperties}
-          />
-        ))}
+        {/* Ocean Horizon */}
+        <div className="absolute bottom-[280px] w-full h-[2px] bg-[#1ebd60] opacity-50" />
+        
+        {/* Giant Yellow Sunset */}
+        <div className="absolute bottom-[280px] left-1/2 -translate-x-1/2 w-[350px] h-[175px] bg-[#ffe600] rounded-t-full border-t-[4px] border-x-[4px] border-[#0b5c33] animate-sun z-0" />
+        
+        {/* White Sand Base */}
+        <div className="absolute bottom-0 w-full h-[280px] bg-white border-t-[4px] border-[#0b5c33] z-10" />
 
-        {/* Floating Heritage Shapes */}
-        <div className="absolute top-32 left-[15%] w-20 h-20 bg-gradient-to-br from-pink-400/30 to-rose-400/10 rounded-full blur-md animate-float" />
-        <div className="absolute top-64 right-[20%] w-16 h-16 border-[3px] border-yellow-300/30 rotate-45 animate-float-delayed" />
-        <div className="absolute bottom-1/3 left-[25%] w-10 h-10 bg-gradient-to-br from-white/20 to-transparent rounded-full animate-float" />
-        <div className="absolute top-1/4 right-[10%] w-32 h-32 bg-purple-400/10 rounded-full blur-2xl animate-float-delayed" />
-
-        {/* Realistic Glowing Sun */}
-        <div className="absolute -bottom-64 left-1/2 -translate-x-1/2 w-[800px] h-[800px] animate-glow">
-          <div className="absolute inset-0 bg-gradient-to-tr from-yellow-400 via-orange-400 to-rose-500 rounded-full blur-[4px] shadow-[0_0_150px_rgba(255,215,0,0.4)]" />
-          <div className="absolute inset-10 bg-white/30 rounded-full blur-2xl" />
+        {/* Birds */}
+        <div className="absolute top-[30%] left-[20%] text-white opacity-80 animate-cloud-1">
+           <svg width="40" height="20" viewBox="0 0 40 20" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+             <path d="M5 15 Q 15 5 20 15 Q 25 5 35 15" />
+           </svg>
         </div>
 
-        {/* Realistic Left Palm Tree */}
-        <div className="absolute -bottom-16 -left-16 w-80 h-[32rem] animate-sway opacity-90">
-          <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-2xl">
-            <defs>
-              <linearGradient id="trunk" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stopColor="#4a2e1b" />
-                <stop offset="100%" stopColor="#2e1b0f" />
-              </linearGradient>
-              <radialGradient id="leaf" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="#388e3c" />
-                <stop offset="100%" stopColor="#1b5e20" />
-              </radialGradient>
-            </defs>
-            <path d="M48,100 Q42,60 50,40 Q53,60 52,100 Z" fill="url(#trunk)"/>
-            <path d="M50,40 C30,30 10,45 5,55 C20,50 35,45 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C35,15 15,15 10,20 C30,25 40,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C55,10 70,10 80,15 C65,25 55,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C75,25 90,30 95,45 C80,40 65,40 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C70,55 85,65 90,75 C75,60 60,50 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C30,60 15,70 10,80 C25,65 40,50 50,40" fill="url(#leaf)"/>
-          </svg>
+        {/* Sailboat */}
+        <div className="absolute bottom-[285px] left-[30%] animate-bob z-0">
+           <div className="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-b-[25px] border-b-black ml-2" />
+           <div className="w-10 h-3 bg-black rounded-b-full mt-1" />
         </div>
 
-        {/* Realistic Right Palm Tree */}
-        <div className="absolute -bottom-20 -right-20 w-96 h-[36rem] animate-sway-delayed opacity-90">
-          <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-2xl" transform="scale(-1, 1)">
-            <path d="M48,100 Q42,60 50,40 Q53,60 52,100 Z" fill="url(#trunk)"/>
-            <path d="M50,40 C30,30 10,45 5,55 C20,50 35,45 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C35,15 15,15 10,20 C30,25 40,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C55,10 70,10 80,15 C65,25 55,30 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C75,25 90,30 95,45 C80,40 65,40 50,40" fill="url(#leaf)"/>
-            <path d="M50,40 C70,55 85,65 90,75 C75,60 60,50 50,40" fill="url(#leaf)"/>
+        {/* ─── LEFT DECOR: Palm Trees & Umbrella ─── */}
+        <div className="absolute bottom-[180px] left-[-20px] md:left-[5%] z-10 animate-sway">
+          <svg width="180" height="250" viewBox="0 0 100 150" className="overflow-visible">
+            <path d="M45,150 Q40,80 50,50 Q55,80 55,150 Z" fill="white" stroke="#0b5c33" strokeWidth="3"/>
+            <path d="M50,50 Q20,40 5,60 Q25,50 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q25,10 10,20 Q30,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q50,0 70,10 Q60,30 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q80,20 95,30 Q75,40 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
+            <path d="M50,50 Q85,55 90,75 Q70,60 50,50" fill="#1ebd60" stroke="#0b5c33" strokeWidth="2.5"/>
           </svg>
+        </div>
+        <div className="absolute bottom-[160px] left-[15%] z-10 hidden md:block">
+           <div className="w-24 h-10 bg-[#ff007f] rounded-t-full border-[3px] border-[#0b5c33]" />
+           <div className="w-24 h-10 bg-[#ffe600] rounded-t-full border-[3px] border-[#0b5c33] absolute top-0 clip-half" style={{ clipPath: 'polygon(0 0, 50% 0, 50% 100%, 0 100%)' }} />
+           <div className="w-1 h-16 bg-white border-x-2 border-[#0b5c33] mx-auto -mt-1" />
+           <div className="flex gap-2 mt-[-10px] ml-4">
+             <div className="w-6 h-4 bg-[#1ebd60] border-[2px] border-[#0b5c33] -rotate-12" />
+             <div className="w-6 h-4 bg-[#1ebd60] border-[2px] border-[#0b5c33] -rotate-12" />
+           </div>
+        </div>
+
+        {/* ─── RIGHT DECOR: Registration Signpost & Scooter ─── */}
+        <div className="absolute bottom-[160px] right-[5%] z-10 hidden lg:block">
+           {/* Pole */}
+           <div className="w-4 h-64 bg-white border-[3px] border-[#0b5c33] mx-auto relative">
+             <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-3 bg-white border-[3px] border-[#0b5c33] rounded-t-full" />
+             
+             {/* Signs */}
+             <div className="absolute top-4 -left-32 flex items-center shadow-[3px_3px_0_0_#0b5c33]">
+                <div className="w-8 h-10 bg-[#ffe600] border-y-[3px] border-l-[3px] border-[#0b5c33]" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 50%)' }} />
+                <div className="h-10 px-3 bg-[#ffe600] border-y-[3px] border-r-[3px] border-[#0b5c33] flex items-center font-serif-italic text-black font-bold text-sm whitespace-nowrap">
+                   6800+ REGISTRATIONS
+                </div>
+             </div>
+
+             <div className="absolute top-16 -left-12 flex items-center shadow-[3px_3px_0_0_#0b5c33]">
+                <div className="h-10 px-3 bg-[#ff007f] border-y-[3px] border-l-[3px] border-[#0b5c33] flex items-center font-serif-italic text-white font-bold text-sm whitespace-nowrap">
+                   390+ HACKERS
+                </div>
+                <div className="w-8 h-10 bg-[#ff007f] border-y-[3px] border-r-[3px] border-[#0b5c33]" style={{ clipPath: 'polygon(0 0, 100% 50%, 0 100%)' }} />
+             </div>
+
+             <div className="absolute top-28 -left-28 flex items-center shadow-[3px_3px_0_0_#0b5c33]">
+                <div className="w-8 h-10 bg-[#ffe600] border-y-[3px] border-l-[3px] border-[#0b5c33]" style={{ clipPath: 'polygon(100% 0, 100% 100%, 0 50%)' }} />
+                <div className="h-10 px-4 bg-[#ffe600] border-y-[3px] border-r-[3px] border-[#0b5c33] flex items-center font-serif-italic text-black font-bold text-sm whitespace-nowrap">
+                   100 PROJECTS
+                </div>
+             </div>
+
+             <div className="absolute top-40 -left-16 flex items-center shadow-[3px_3px_0_0_#0b5c33]">
+                <div className="h-10 px-3 bg-[#ff007f] border-y-[3px] border-l-[3px] border-[#0b5c33] flex items-center font-serif-italic text-white font-bold text-sm whitespace-nowrap">
+                   $50K+ BOUNTIES
+                </div>
+                <div className="w-8 h-10 bg-[#ff007f] border-y-[3px] border-r-[3px] border-[#0b5c33]" style={{ clipPath: 'polygon(0 0, 100% 50%, 0 100%)' }} />
+             </div>
+           </div>
+        </div>
+
+        {/* Pink Scooter */}
+        <div className="absolute bottom-[100px] right-[25%] z-10 hidden md:block">
+           <svg width="120" height="80" viewBox="0 0 100 60" className="overflow-visible">
+             <path d="M20,50 A10,10 0 1,1 40,50 A10,10 0 1,1 20,50" fill="white" stroke="#0b5c33" strokeWidth="3" />
+             <path d="M70,50 A10,10 0 1,1 90,50 A10,10 0 1,1 70,50" fill="white" stroke="#0b5c33" strokeWidth="3" />
+             <path d="M10,40 C10,20 30,10 50,30 L70,30 C80,10 95,20 95,40 Z" fill="#ff007f" stroke="#0b5c33" strokeWidth="3" />
+             <rect x="40" y="25" width="20" height="5" fill="#0b5c33" />
+             <line x1="85" y1="40" x2="85" y2="10" stroke="#0b5c33" strokeWidth="3" />
+             <path d="M75,10 Q85,5 95,10" fill="none" stroke="#0b5c33" strokeWidth="3" />
+           </svg>
         </div>
       </div>
 
-      <audio ref={audioRef} className="hidden" />
-
-      {/* ─── CLEAN HEADER (Z-10) ──────────────────────────────────── */}
-      <header className="relative z-10 shrink-0 border-b border-white/10 bg-white/5 backdrop-blur-md">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="relative inline-flex items-center justify-center pt-2 select-none hover:scale-105 transition-transform cursor-default">
-            {/* The Liquid Gold Hacker House Logo */}
-            <span className="text-4xl md:text-5xl font-serif-tall text-liquid-gold tracking-tighter drop-shadow-md">
-              HACKER HOUSE
-            </span>
-            <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[35%] text-5xl md:text-6xl font-cursive text-[#ff007f] -rotate-6 drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
-              गोवा
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setShowMetrics(!showMetrics)}
-              className="text-xs px-6 py-2.5 bg-white/90 hover:bg-white text-slate-800 rounded-full shadow-lg font-semibold transition-all hover:-translate-y-0.5 btn-shine"
-            >
-              Telemetry {latestMetrics ? `(${latestMetrics.totalMs}ms)` : ""}
-            </button>
-            <button
-              onClick={() => setShowKB(!showKB)}
-              className="text-xs px-6 py-2.5 bg-gradient-to-r from-yellow-300 to-yellow-400 hover:from-yellow-400 hover:to-yellow-500 text-slate-900 rounded-full shadow-lg shadow-yellow-500/20 font-bold transition-all hover:-translate-y-0.5 btn-shine"
-            >
-              Knowledge {documents.length > 0 ? `(${documents.length})` : ""}
-            </button>
-          </div>
+      {/* ─── HEADER: Logo ─────────────────────────────────────────── */}
+      <header className="relative z-20 pt-10 pb-2 text-center pointer-events-none">
+        <div className="relative inline-block">
+          <h1 className="text-6xl md:text-8xl font-serif-italic text-[#ffe600] tracking-tighter leading-[0.8] drop-shadow-[2px_2px_0_#0b5c33]">
+            HACKER<br/>HOUSE
+          </h1>
+          <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-5xl md:text-7xl font-cursive text-[#ff007f] -rotate-12 drop-shadow-[2px_2px_0_white]">
+            गोवा
+          </span>
         </div>
       </header>
 
-      {/* ─── HERITAGE-STYLE METRICS DASHBOARD ─────────────────────── */}
-      {showMetrics && (
-        <div className="relative z-10 shrink-0 bg-white shadow-[0_10px_40px_rgba(0,0,0,0.15)]">
-          <div className="max-w-5xl mx-auto px-6 py-10 space-y-8">
-            <div className="text-center space-y-2 mb-4">
-              <h3 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-rose-500">
-                Pipeline Analytics
-              </h3>
-              <p className="text-base text-slate-500 font-medium">Real-time breakdown of our sub-200ms RAG architecture</p>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
-              {[
-                { label: "Whisper STT", value: latestMetrics?.sttMs, color: "bg-purple-500", shadow: "shadow-purple-500/30" },
-                { label: "Vector DB", value: latestMetrics?.retrievalMs, color: "bg-blue-500", shadow: "shadow-blue-500/30" },
-                { label: "Groq TTFT", value: latestMetrics?.ttftMs, color: "bg-emerald-500", shadow: "shadow-emerald-500/30" },
-                { label: "Sarvam TTS", value: latestMetrics?.ttsMs, color: "bg-orange-500", shadow: "shadow-orange-500/30" },
-              ].map((metric, i) => (
-                <div key={i} className="group flex flex-col items-center p-6 bg-white rounded-3xl shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                  <div className={`w-14 h-14 ${metric.color} text-white rounded-full flex items-center justify-center font-bold mb-4 shadow-lg ${metric.shadow} group-hover:scale-110 transition-transform`}>
-                    {metric.label.charAt(0)}
-                  </div>
-                  <span className="text-sm text-slate-500 font-semibold mb-1 text-center">{metric.label}</span>
-                  <span className="text-2xl font-bold text-slate-800">{metric.value ? `${metric.value}ms` : "--"}</span>
-                </div>
-              ))}
-              
-              <div className="group flex flex-col items-center p-6 bg-gradient-to-br from-yellow-50 to-white rounded-3xl shadow-md border border-yellow-100 col-span-2 md:col-span-1 transform md:scale-110 hover:shadow-2xl transition-all duration-300">
-                 <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 to-yellow-500 text-white rounded-full flex items-center justify-center font-bold mb-4 shadow-lg shadow-yellow-500/40 group-hover:rotate-12 transition-transform">
-                    ⚡
-                  </div>
-                 <span className="text-sm text-yellow-700 font-bold mb-1 text-center">Total TTFA</span>
-                 <span className="text-3xl font-black text-slate-900">{latestMetrics ? `${latestMetrics.totalMs}ms` : "--"}</span>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-8 text-sm font-medium pt-6 border-t border-slate-100">
-              <span className="text-slate-400">Queries: <span className="text-slate-800 font-bold text-lg">{latencyHistory.length}</span></span>
-              <span className="text-slate-400">Median (P50): <span className="text-emerald-500 font-bold text-lg">{p50}ms</span></span>
-              <span className="text-slate-400">P70: <span className="text-orange-500 font-bold text-lg">{p70}ms</span></span>
-              <span className="text-slate-400">Peak (P100): <span className="text-pink-500 font-bold text-lg">{p100}ms</span></span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── HERITAGE-STYLE KNOWLEDGE BASE ────────────────────────── */}
-      {showKB && (
-        <div className="relative z-10 shrink-0 bg-white/95 backdrop-blur-xl border-b border-slate-200 p-8 shadow-lg">
-          <div className="max-w-5xl mx-auto space-y-5">
-            <div className="flex items-center justify-between">
-              <h3 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-pink-500 to-rose-500 font-poppins">
-                Train the Assistant
-              </h3>
-            </div>
-            <div className="flex gap-4">
-              <textarea
-                value={manualText}
-                onChange={(e) => setManualText(e.target.value)}
-                placeholder="Paste contextual information here..."
-                rows={2}
-                className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-pink-500/20 focus:border-pink-500 transition-all resize-none shadow-inner text-slate-700 font-medium"
-              />
-              <button
-                onClick={addKnowledge}
-                disabled={!manualText.trim()}
-                className="px-10 py-4 bg-gradient-to-r from-pink-500 to-rose-500 text-white font-bold text-lg rounded-2xl shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 hover:-translate-y-1 disabled:opacity-50 disabled:hover:translate-y-0 transition-all btn-shine"
-              >
-                Index
-              </button>
-            </div>
-            {documents.length > 0 && (
-              <div className="max-h-40 overflow-y-auto space-y-3 mt-6 pr-2">
-                {documents.map((doc) => (
-                  <div key={doc.id} className="flex items-start gap-4 p-4 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <span className="shrink-0 text-pink-500 bg-pink-50 w-8 h-8 rounded-full flex items-center justify-center font-bold">✦</span>
-                    <span className="text-sm text-slate-600 line-clamp-2 leading-relaxed font-medium pt-1">{doc.transcript}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ─── CLEAN FLOATING CHAT AREA ─────────────────────────────── */}
-      <div ref={chatContainerRef} className="relative z-10 flex-1 overflow-y-auto scroll-smooth pb-12">
-        <div className="max-w-4xl mx-auto px-6 py-10 space-y-8">
+      {/* ─── CHAT INTERFACE (Hanging Signs Style) ─────────────────── */}
+      <div ref={chatContainerRef} className="relative z-20 flex-1 overflow-y-auto pb-48 pt-6 px-4 md:px-0">
+        <div className="max-w-2xl mx-auto space-y-8">
+          
+          {/* EMPTY STATE: Laptop Hackers */}
           {messages.length === 0 && !isListening && (
-            <div className="flex flex-col items-center justify-center pt-20 text-center space-y-6">
-              <div className="w-28 h-28 bg-white/10 backdrop-blur-md rounded-[2rem] flex items-center justify-center shadow-2xl border border-white/20 animate-float">
-                <span className="text-6xl drop-shadow-md">✨</span>
-              </div>
-              <div className="max-w-lg">
-                <h2 className="text-5xl text-white font-cursive tracking-wide mb-4 drop-shadow-lg">Hello there!</h2>
-                <p className="text-base text-white/90 leading-relaxed font-medium drop-shadow">
-                  Tap the microphone to speak naturally. The system is engineered to respond dynamically with zero perceived latency.
-                </p>
-              </div>
+            <div className="flex flex-col items-center justify-center pt-10">
+               <div className="relative w-64 h-40">
+                  {/* Laptop Screen */}
+                  <div className="absolute bottom-6 w-full h-32 bg-[#1ebd60] border-[4px] border-[#0b5c33] rounded-t-xl flex flex-col items-center justify-center neo-shadow">
+                     <span className="font-serif-italic text-[#ffe600] text-2xl leading-none">HACKER</span>
+                     <span className="font-serif-italic text-[#ffe600] text-2xl leading-none">HOUSE</span>
+                     <span className="absolute font-cursive text-[#ff007f] text-3xl -rotate-12 drop-shadow-[1px_1px_0_white]">गोवा</span>
+                  </div>
+                  {/* Laptop Base & Hands */}
+                  <div className="absolute bottom-0 left-[-10%] w-[120%] h-8 bg-white border-[4px] border-[#0b5c33] rounded-b-xl" />
+                  <div className="absolute bottom-0 left-[20%] w-[20%] h-[120%] bg-[#ffb6c1] border-[4px] border-[#0b5c33] rounded-full rotate-[30deg] z-10" />
+                  <div className="absolute bottom-0 right-[20%] w-[20%] h-[120%] bg-[#ffb6c1] border-[4px] border-[#0b5c33] rounded-full -rotate-[30deg] z-10" />
+               </div>
+               <div className="mt-8 px-6 py-3 bg-white border-[3px] border-[#0b5c33] neo-shadow-sm text-center">
+                  <p className="text-xs font-bold text-black uppercase tracking-widest">
+                     System Active. <span className="text-[#ff007f]">Ready to Hack.</span>
+                  </p>
+               </div>
             </div>
           )}
 
+          {/* CHAT MESSAGES */}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[80%] px-8 py-5 rounded-[2rem] shadow-xl transition-all duration-300 hover:-translate-y-1 ${
-                  msg.role === "user"
-                    ? "bg-gradient-to-br from-yellow-300 to-yellow-400 text-slate-900 rounded-br-md shadow-yellow-500/20"
-                    : "bg-white/95 backdrop-blur-md text-slate-800 rounded-bl-md border border-white/50"
-                }`}
-              >
-                <p className="text-[16px] font-medium leading-relaxed whitespace-pre-wrap">
-                  {msg.content}
-                  {msg.isStreaming && (
-                    <span className="inline-block w-2.5 h-5 ml-2 bg-gradient-to-t from-pink-400 to-rose-400 rounded-full animate-pulse align-middle" />
-                  )}
-                </p>
-                {msg.latencyMs !== undefined && !msg.isStreaming && (
-                  <p className={`text-[11px] font-bold mt-3 uppercase tracking-wider ${msg.role === "user" ? "text-yellow-800" : "text-slate-400"}`}>
-                    ⚡ {msg.latencyMs}ms elapsed
+              <div className="relative max-w-[85%]">
+                {/* Hanging Ropes (Nails) */}
+                <div className="absolute -top-3 left-4 w-1.5 h-4 bg-[#0b5c33] rounded-t-full z-[-1]" />
+                <div className="absolute -top-3 right-4 w-1.5 h-4 bg-[#0b5c33] rounded-t-full z-[-1]" />
+                
+                {/* Signboard Bubble */}
+                <div
+                  className={`px-6 py-5 border-[4px] border-[#0b5c33] neo-shadow ${
+                    msg.role === "user"
+                      ? "bg-[#ffe600] text-black"
+                      : "bg-[#ff007f] text-white"
+                  }`}
+                >
+                  <p className="text-[15px] font-bold leading-relaxed whitespace-pre-wrap">
+                    {msg.content}
+                    {msg.isStreaming && <span className="inline-block w-2.5 h-5 ml-1 bg-white animate-pulse align-middle border-[2px] border-[#0b5c33]" />}
                   </p>
-                )}
+                  
+                  {/* Inner Frame Detail */}
+                  <div className={`absolute inset-1.5 border-[2px] pointer-events-none ${msg.role === "user" ? "border-black/20" : "border-white/30"}`} />
+
+                  {msg.latencyMs !== undefined && !msg.isStreaming && (
+                    <p className={`text-[10px] font-black mt-3 uppercase tracking-widest ${msg.role === "user" ? "text-black/60" : "text-white/80"}`}>
+                      ⚡ {msg.latencyMs}ms LATENCY
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           ))}
 
           {isListening && (
             <div className="flex justify-end">
-              <div className="max-w-[80%] px-8 py-5 rounded-[2rem] rounded-br-md shadow-xl bg-white/20 backdrop-blur-lg border border-white/30 text-white">
-                <div className="flex items-center gap-3 text-base font-medium">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500"></span>
-                  </span>
-                  Recording...
+              <div className="relative px-6 py-4 border-[4px] border-[#0b5c33] bg-white text-black neo-shadow">
+                <div className="absolute inset-1.5 border-[2px] border-black/10 pointer-events-none" />
+                <div className="flex items-center gap-3 text-sm font-bold uppercase tracking-widest">
+                  <span className="w-3 h-3 bg-[#ff007f] border-[2px] border-[#0b5c33] rounded-full animate-ping" />
+                  Recording Audio
                 </div>
               </div>
             </div>
@@ -721,10 +477,10 @@ export default function HomePage() {
 
           {isThinking && (
             <div className="flex justify-start">
-              <div className="px-8 py-6 rounded-[2rem] rounded-bl-md shadow-xl bg-white/95 backdrop-blur-md flex gap-2 items-center">
-                <div className="w-2.5 h-2.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <div className="w-2.5 h-2.5 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <div className="w-2.5 h-2.5 bg-yellow-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="relative px-6 py-5 border-[4px] border-[#0b5c33] bg-white neo-shadow flex gap-2 items-center">
+                <div className="w-3 h-3 bg-[#0b5c33] border-[2px] border-black animate-bounce" style={{ animationDelay: "0ms" }} />
+                <div className="w-3 h-3 bg-[#ff007f] border-[2px] border-black animate-bounce" style={{ animationDelay: "150ms" }} />
+                <div className="w-3 h-3 bg-[#ffe600] border-[2px] border-black animate-bounce" style={{ animationDelay: "300ms" }} />
               </div>
             </div>
           )}
@@ -733,63 +489,44 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ─── PREMIUM FLOATING INPUT BAR W/ HOLOGRAPHIC AURA ───────── */}
-      <div className="relative z-10 shrink-0 p-6 pb-10 pointer-events-none">
-        <div className="max-w-3xl mx-auto flex items-center gap-3 bg-white/95 backdrop-blur-2xl p-3 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.2)] border border-white/50 pointer-events-auto">
+      <audio ref={audioRef} className="hidden" />
+
+      {/* ─── NEOBRUTALIST INPUT BAR ───────────────────────────────── */}
+      <div className="absolute bottom-[100px] left-0 right-0 z-40 px-4">
+        <div className="max-w-2xl mx-auto flex items-center gap-3 bg-white p-3 border-[4px] border-[#0b5c33] neo-shadow">
           
-          <div className="relative flex items-center justify-center">
-            {/* The Holographic Voice Aura */}
-            {isListening && (
-              <>
-                <div className="absolute inset-0 bg-gradient-to-r from-pink-500 to-rose-500 rounded-full aura-1" />
-                <div className="absolute inset-0 bg-gradient-to-r from-yellow-400 to-pink-500 rounded-full aura-2" />
-                <div className="absolute inset-0 bg-gradient-to-r from-rose-400 to-orange-500 rounded-full aura-3" />
-              </>
+          <button
+            onClick={isListening ? stopListening : startListening}
+            disabled={isThinking}
+            className={`shrink-0 w-14 h-14 flex items-center justify-center border-[3px] border-[#0b5c33] transition-transform active:translate-y-1 active:shadow-none shadow-[2px_2px_0_0_#0b5c33] disabled:opacity-50 ${
+              isListening ? "bg-[#ff007f] text-white" : isSpeaking ? "bg-[#1ebd60] text-white" : "bg-[#ffe600] text-black hover:bg-[#ff007f] hover:text-white"
+            }`}
+          >
+            {isListening ? (
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" /></svg>
+            ) : isSpeaking ? (
+              <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3z" /><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" /></svg>
+            ) : (
+              <svg className="w-7 h-7" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" /><path d="M19 10v2a7 7 0 01-14 0v-2" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="square" /><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="2.5" /></svg>
             )}
-            
-            <button
-              onClick={isListening ? stopListening : startListening}
-              disabled={isThinking}
-              className={`group relative shrink-0 w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 disabled:opacity-50 z-10 ${
-                isListening
-                  ? "bg-rose-500 text-white shadow-lg shadow-rose-500/40"
-                  : isSpeaking
-                  ? "bg-slate-100 text-emerald-500"
-                  : "bg-gradient-to-br from-pink-500 to-rose-500 text-white shadow-lg shadow-pink-500/30 hover:scale-105 hover:shadow-pink-500/50 btn-shine"
-              }`}
-            >
-              {isListening ? (
-                <svg className="w-5 h-5 relative z-10" fill="currentColor" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2" /></svg>
-              ) : isSpeaking ? (
-                <svg className="w-6 h-6 relative z-10" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M3 9v6h4l5 5V4L7 9H3z" /><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6 relative z-10 transition-transform group-hover:scale-110" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
-                  <path d="M19 10v2a7 7 0 01-14 0v-2" stroke="currentColor" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-                  <line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                </svg>
-              )}
-            </button>
-          </div>
+          </button>
 
           <input
             type="text"
             value={textQuery}
             onChange={(e) => setTextQuery(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && submitTextQuery()}
-            placeholder={isListening ? "Listening..." : "Type or speak your question..."}
+            placeholder={isListening ? "Listening..." : "Type command..."}
             disabled={isThinking || isListening}
-            className="flex-1 h-14 px-5 bg-transparent text-slate-800 placeholder:text-slate-400 font-medium text-[16px] focus:outline-none disabled:opacity-50"
+            className="flex-1 h-14 px-4 bg-[#f4f4f4] text-black border-[3px] border-[#0b5c33] placeholder:text-black/40 font-bold text-sm focus:outline-none focus:bg-white disabled:opacity-50"
           />
 
           <button
             onClick={submitTextQuery}
             disabled={!textQuery.trim() || isThinking || isListening}
-            className="group shrink-0 w-14 h-14 bg-slate-900 text-white rounded-full flex items-center justify-center hover:bg-slate-800 hover:shadow-lg disabled:opacity-30 transition-all duration-300 btn-shine"
+            className="shrink-0 w-14 h-14 bg-black text-white border-[3px] border-[#0b5c33] flex items-center justify-center hover:bg-[#ffe600] hover:text-black disabled:opacity-30 transition-transform active:translate-y-1 active:shadow-none shadow-[2px_2px_0_0_#0b5c33]"
           >
-            <svg className="w-5 h-5 translate-x-0.5 transition-transform duration-300 group-hover:translate-x-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="w-6 h-6 translate-x-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="3" strokeLinecap="square" strokeLinejoin="miter">
                <line x1="5" y1="12" x2="19" y2="12"></line>
                <polyline points="12 5 19 12 12 19"></polyline>
             </svg>
@@ -797,12 +534,26 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* ─── OFFICIAL CONTACT FOOTER ──────────────────────────────── */}
+      <footer className="absolute bottom-0 left-0 w-full bg-[#0b5c33] z-50 p-4 md:px-10 flex flex-col md:flex-row justify-between text-[#ffe600] font-mono-bold text-[10px] md:text-xs leading-relaxed">
+         <div className="flex flex-col gap-1 tracking-widest">
+           <span className="flex items-center gap-2"><span className="text-[#1ebd60] text-sm">X</span> @247PMSTUDIO</span>
+           <span className="flex items-center gap-2"><span className="text-[#ff007f] text-sm">➤</span> @TWOFOURTYSEVENPM</span>
+           <span className="flex items-center gap-2"><span className="text-white text-sm">✉</span> SATAPATHYPRAYASU@GMAIL.COM</span>
+         </div>
+         <div className="flex flex-col gap-1 text-left md:text-right tracking-widest mt-4 md:mt-0">
+           <span className="hover:text-white cursor-pointer">BRAND KIT</span>
+           <span className="hover:text-white cursor-pointer">TERM & CONDITIONS</span>
+           <span className="mt-2 text-white/80">© 2026 HH-GOA. ALL RIGHTS RESERVED.</span>
+         </div>
+      </footer>
+
       {/* ─── ERROR TOAST ──────────────────────────────────────────── */}
       {error && (
-        <div className="fixed top-8 left-1/2 -translate-x-1/2 max-w-md w-full p-4 bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl z-50 flex items-center gap-4 border border-red-100">
-          <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-red-500 font-bold shrink-0 text-xl">!</div>
-          <span className="font-semibold text-slate-700 text-sm flex-1">{error}</span>
-          <button onClick={() => setError(null)} className="text-slate-400 hover:text-slate-600 font-bold p-2 transition-colors">✕</button>
+        <div className="fixed top-8 left-1/2 -translate-x-1/2 max-w-md w-full p-4 bg-white border-[4px] border-[#0b5c33] neo-shadow z-50 flex items-center gap-3">
+          <div className="w-10 h-10 bg-[#ff007f] border-[3px] border-[#0b5c33] flex items-center justify-center text-white font-bold shrink-0 text-xl">!</div>
+          <span className="font-bold text-black text-sm flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="text-black hover:text-[#ff007f] font-bold p-2 text-xl leading-none">✕</button>
         </div>
       )}
     </div>
